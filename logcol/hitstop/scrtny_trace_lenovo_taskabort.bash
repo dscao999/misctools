@@ -35,12 +35,9 @@ done
 #
 # Set scsi and mpt3sas debug flags
 #
-SCSI_DEBUG=/proc/sys/dev/scsi/logging_level
 MPT3_DEBUG=/sys/module/mpt3sas/parameters/logging_level
 echo 0x03f8 >  ${MPT3_DEBUG}
-echo 0x1b   >  ${SCSI_DEBUG}
 #
-echo ${SCSI_DEBUG}=$(printf "%#x\n" $(cat ${SCSI_DEBUG}))
 echo ${MPT3_DEBUG}=$(printf "%#x\n" $(cat ${MPT3_DEBUG}))
 #
 #collect current drive status by scrtnycli tool before test
@@ -59,7 +56,6 @@ function restore()
 	#./scrtnycli.x86_64 -i 1 db -unregister -trace
 # restore debugging flags
 	echo 0 >  ${MPT3_DEBUG}
-	echo 0 >  ${SCSI_DEBUG}
 	./sync -f pl_status_pretest.txt
 	if [ -n "$kdump" ]
 	then
@@ -119,13 +115,13 @@ done
 # Dump 5 more times after timeout
 #
 count=0
-while [ $count -lt 120 ]
+while [ $count -lt 121 ]
 do
 	if [ $((count%30)) -eq 0 ]
 	then
 		./scrtnycli.x86_64 -i 1 cli iop show diag > scrutiny_abort_diag${numabort}.txt
 		./dmesg > kernel${numabort}.txt
-		numabort=$(((numabort+1)%10))
+		numabort=$((numabort+1))
 	fi
 	./sleep
 	count=$((count+1))
