@@ -3,7 +3,6 @@
 #FWBUFSZ=4095
 #Script will finish log collection when hit below event
 ENDMARK="mpt3sas_cm0: _config_request: timeout"
-[ -n "$1" ] && ENDMARK="$1"
 #
 TARGS=$(getopt -l crash,test -o cx -- "$@")
 [ $? -eq 0 ] || exit 1
@@ -33,6 +32,7 @@ do
 	esac
 	shift
 done
+[ -n "$1" ] && ENDMARK="$1"
 #
 # Set scsi and mpt3sas debug flags
 #
@@ -94,10 +94,16 @@ function fwdump()
 
 #Look for task abort event, when meet "attempting task abort", begin to capture logs
 #
-stplast=0
+stplast=$(dmesg --nopage -k | sed -e '$!d' | sed -e 's/^\[ *//' -e 's/\./ /')
+stplast=${stplast%% *}
 count=0
-while ! dmesg --nopager -k | grep -F "${ENDMARK}"
+while true
 do
+	hitstp=$(dmesg --nopager -k | grep -F "${ENDMARK}" | sed -e '$!d' | \
+			sed -e 's/^\[ *//' -e 's/\./ /')
+	hitstp=${hitstp%% *}
+	[ $hitstp -gt $stplast ] && break
+
 	keyline=$(dmesg --nopager -k |grep -F "$MARK"|sed -e '$!d'| \
 			sed -e 's/^\[ *//' -e 's/\./ /')
 	if [ -n "$keyline" ]
@@ -118,7 +124,7 @@ done
 # Dump 5 more times after timeout
 #
 count=0
-while [ $count -lt 4 ]
+while [ $count -lt 5 ]
 do
 	scrtnycli.x86_64 -i 1 cli iop show diag > scrutiny_abort_diag${numabort}.txt
 	dmesg --nopager -k > kernel${numabort}.txt
