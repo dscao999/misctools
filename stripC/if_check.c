@@ -24,8 +24,8 @@ static struct token_subst tokens[] = {
 
 static void replace_linux_version(char *procbuf, int llen, int lno)
 {
-	char *hit;
-	int subed = 0;
+	char *hit, *term, *bdef;
+	int subed = 0, defstay;
 	struct token_subst *token = tokens;
 
 	while (token->token) {
@@ -40,10 +40,28 @@ static void replace_linux_version(char *procbuf, int llen, int lno)
 	}
 
 	if (subed) {
+		hit = strstr(procbuf, "defined(");
+		while (hit) {
+			term = strchr(hit, ')');
+			defstay = 0;
+			bdef = hit;
+			hit += 8;
+			while (hit < term) {
+				if (*hit != ' ' && (*hit < '0' || *hit > '9')) {
+					defstay = 1;
+					break;
+				}
+				hit++;
+			}
+			if (!defstay) {
+				memset(bdef, ' ', 8);
+				*term = ' ';
+			}
+			hit = strstr(term, "defined(");
+		}
 		fprintf(stderr, "#if processed at line: %d\n", lno+1);
 		fprintf(stderr, "%s\n", procbuf);
 	}
-
 }
 
 static int check_linux_version(char *lbuf, size_t *len, FILE *fin, FILE *fout,
