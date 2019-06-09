@@ -22,11 +22,18 @@ static struct token_subst tokens[] = {
 	{ .token = NULL, .rep = NULL }
 };
 
+static inline unsigned int kversion(unsigned int a, unsigned int b, unsigned c)
+{
+	return (a << 16) + (b << 8) + c;
+}
+
 static void replace_linux_version(char *procbuf, int llen, int lno)
 {
 	char *hit, *term, *bdef;
-	int subed = 0, defstay;
+	int subed = 0, defstay, par, len;
 	struct token_subst *token = tokens;
+	unsigned int ka, kb, kc;
+	const char *pchr;
 
 	while (token->token) {
 		hit = strstr(procbuf, token->token);
@@ -37,6 +44,24 @@ static void replace_linux_version(char *procbuf, int llen, int lno)
 			hit = strstr(procbuf, token->token);
 		}
 		token++;
+	}
+
+	hit=strstr(procbuf, "KERNEL_VERSION(");
+	while (hit) {
+		par = 1;
+		pchr = hit + 15;
+		while (par) {
+			if (*pchr == ')')
+				par -= 1;
+			else if (*pchr == '(')
+				par += 1;
+			pchr++;
+		}
+		sscanf(hit+15, " %d, %d, %d )", &ka, &kb, &kc);
+		len = sprintf(hit, "%d", kversion(ka, kb, kc));
+		memset(hit+len, ' ', pchr - hit - len);
+		subed = 1;
+		hit=strstr(pchr, "KERNEL_VERSION(");
 	}
 
 	if (subed) {
@@ -64,7 +89,7 @@ static void replace_linux_version(char *procbuf, int llen, int lno)
 	}
 }
 
-static int check_linux_version(char *lbuf, size_t *len, FILE *fin, FILE *fout,
+static int check_linux_version(char *lbuf, size_t *len, FILE *fin, FILE *fot,
 		int lno)
 {
 	const char *cchr;
@@ -85,17 +110,17 @@ static int check_linux_version(char *lbuf, size_t *len, FILE *fin, FILE *fout,
 	}
 
 	strcpy(procbuf, lbuf);
-	printf("%s", lbuf);
+	fwrite(lbuf, 1, strlen(lbuf), fot);
 	lp = 1;
 	llen = strlen(procbuf);
 	chr = procbuf + llen;
 	while (*(chr-2) == '\\' && *(chr-1) == '\n') {
 		chr -= 2;
-		nochr = getline(&lbuf, len, stdin);
+		nochr = getline(&lbuf, len, fin);
 		memmove(chr, lbuf, nochr);
 		llen += nochr -2;
 		chr += nochr;
-		printf("%s", lbuf);
+		fwrite(lbuf, 1, strlen(lbuf), fot);
 		lp++;
 	}
 	*chr = 0;
@@ -116,6 +141,24 @@ int main(int argc, char *argv[])
 	char *lbuf;
 	ssize_t len;
 	size_t maxlen;
+	FILE *fin, *fot;
+
+	if (argc < 2) {
+		fprintf(stderr, "Usage: %s file [out file]\n", argv[0]);
+		return 4;
+	}
+	fin = fopen(argv[1], "rb");
+	if (argc > 2)
+		fot = fopen(argv[2], "wb");
+	else
+		fot = fopen("/dev/null", "wb");
+	if (unlikely(!fin || !fot)) {
+		if (fin)
+			fclose(fin);
+		if (fot)
+			fclose(fot);
+		return 8;
+	}
 
 	lbuf = malloc(MAX_LINE_LEN);
 	if (unlikely(!lbuf)) {
@@ -125,17 +168,17 @@ int main(int argc, char *argv[])
 	maxlen = MAX_LINE_LEN;
 
 	lcnt = 0;
-	len = getline(&lbuf, &maxlen, stdin);
+	len = getline(&lbuf, &maxlen, fin);
 	while (len > 0 && len < 1024) {
-		lp = check_linux_version(lbuf, &maxlen, stdin, stdout, lcnt);
+		lp = check_linux_version(lbuf, &maxlen, fin, fot, lcnt);
 		if (lp == 0) {
-			printf("%s", lbuf);
+			fwrite(lbuf, 1, strlen(lbuf), fot);
 			lcnt += 1;
 		} else
 			lcnt += lp;
-		len = getline(&lbuf, &maxlen, stdin);
+		len = getline(&lbuf, &maxlen, fin);
 	}
-	if (unlikely(!feof(stdin))) {
+	if (unlikely(!feof(fin))) {
 		fprintf(stderr, "Unexpected read error \"%s\": 8\n",
 				strerror(errno));
 		if (len >= 1024)
@@ -145,5 +188,7 @@ int main(int argc, char *argv[])
 	fprintf(stderr, "Total %d lines.\n", lcnt);
 
 	free(lbuf);
+	fclose(fot);
+	fclose(fin);
 	return retv;
 }
