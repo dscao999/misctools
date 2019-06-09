@@ -27,7 +27,7 @@ static inline unsigned int kversion(unsigned int a, unsigned int b, unsigned c)
 	return (a << 16) + (b << 8) + c;
 }
 
-static void replace_linux_version(char *procbuf, int llen, int lno)
+static void replace_linux_version(char *procbuf, int llen)
 {
 	char *hit, *term, *bdef;
 	int subed = 0, defstay, par, len;
@@ -84,54 +84,77 @@ static void replace_linux_version(char *procbuf, int llen, int lno)
 			}
 			hit = strstr(term, "defined(");
 		}
-		fprintf(stderr, "#if processed at line: %d\n", lno+1);
-		fprintf(stderr, "%s\n", procbuf);
 	}
 }
 
-static int check_linux_version(char *lbuf, size_t *len, FILE *fin, FILE *fot,
-		int lno)
+static int evaluate_if(char *procbuf, int len)
 {
-	const char *cchr;
-	char *procbuf, *chr;
-	int llen, lp, nochr;
+	return -1;
+}
 
-	cchr = lbuf;
+static inline const char *strip_blanks(const char *buf)
+{
+	const char *cchr = buf;
+
 	while (*cchr == ' ' || *cchr == '\t')
 		cchr++;
+	return cchr;
+}
 
-	if (likely(strstr(cchr, "#if") != cchr))
-		return 0;
+static inline int m_getline(char **buf, size_t *len, FILE *fin)
+{
+	int nochr;
+
+	nochr = getline(buf, len, fin);
+	if (nochr == 0 || nochr > 1024) {
+		fprintf(stderr, "Invalid file, properly a binary!\n");
+		exit(200);
+	}
+	return nochr;
+}
+
+static int process_if(const char *buf, int len, FILE *fin, FILE *fot, int lno)
+{
+	char *procbuf, *chr, *lbuf;
+	int lp;
+	int nochr;
+	size_t buflen;
 
 	procbuf = malloc(8*MAX_LINE_LEN);
-	if (!procbuf) {
+	lbuf = malloc(MAX_LINE_LEN);
+	if (unlikely(!procbuf || !lbuf)) {
 		fprintf(stderr, "Out of Memory. Err Code: 100\n");
 		exit(100);
 	}
+	buflen = MAX_LINE_LEN;
 
-	strcpy(procbuf, lbuf);
-	fwrite(lbuf, 1, strlen(lbuf), fot);
+	strcpy(procbuf, buf);
+	fwrite(procbuf, 1, len, fot);
 	lp = 1;
-	llen = strlen(procbuf);
-	chr = procbuf + llen;
+	chr = procbuf + len;
 	while (*(chr-2) == '\\' && *(chr-1) == '\n') {
 		chr -= 2;
-		nochr = getline(&lbuf, len, fin);
-		memmove(chr, lbuf, nochr);
-		llen += nochr -2;
+		nochr = m_getline(&lbuf, &buflen, fin);
+		memcpy(chr, lbuf, nochr);
+		len += nochr - 2;
 		chr += nochr;
-		fwrite(lbuf, 1, strlen(lbuf), fot);
+		fwrite(lbuf, 1, nochr, fot);
 		lp++;
 	}
 	*chr = 0;
 	if (*(chr-1) == '\n') {
 		*(chr-1) = 0;
-		llen--;
+		len--;
 	}
-	replace_linux_version(procbuf, llen, lno);
 
+	replace_linux_version(procbuf, len);
+	fprintf(stderr, "#if processed at line: %d\n", lno+1);
+	fprintf(stderr, "%s\n", procbuf);
+
+	evaluate_if(procbuf, len);
+
+	free(lbuf);
 	free(procbuf);
-
 	return lp;
 }
 
@@ -142,6 +165,7 @@ int main(int argc, char *argv[])
 	ssize_t len;
 	size_t maxlen;
 	FILE *fin, *fot;
+	const char *cchr;
 
 	if (argc < 2) {
 		fprintf(stderr, "Usage: %s file [out file]\n", argv[0]);
@@ -170,12 +194,14 @@ int main(int argc, char *argv[])
 	lcnt = 0;
 	len = getline(&lbuf, &maxlen, fin);
 	while (len > 0 && len < 1024) {
-		lp = check_linux_version(lbuf, &maxlen, fin, fot, lcnt);
-		if (lp == 0) {
-			fwrite(lbuf, 1, strlen(lbuf), fot);
-			lcnt += 1;
-		} else
+		cchr = strip_blanks(lbuf);
+		if (unlikely(strstr(cchr, "#if") == cchr)) {
+			lp = process_if(lbuf, len, fin, fot, lcnt);
 			lcnt += lp;
+		} else {
+			fwrite(lbuf, 1, len, fot);
+			lcnt += 1;
+		}
 		len = getline(&lbuf, &maxlen, fin);
 	}
 	if (unlikely(!feof(fin))) {
