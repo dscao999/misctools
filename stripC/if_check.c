@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <assert.h>
 
 #define MAX_LINE_LEN	1024
 
@@ -116,9 +117,9 @@ static inline int m_getline(char **buf, size_t *len, FILE *fin)
 static int process_if(const char *buf, int len, FILE *fin, FILE *fot, int lno)
 {
 	char *procbuf, *chr, *lbuf;
-	int lp;
-	int nochr;
+	int lp, nochr, valif;
 	size_t buflen;
+	const char *cchr;
 
 	procbuf = malloc(8*MAX_LINE_LEN);
 	lbuf = malloc(MAX_LINE_LEN);
@@ -128,9 +129,12 @@ static int process_if(const char *buf, int len, FILE *fin, FILE *fot, int lno)
 	}
 	buflen = MAX_LINE_LEN;
 
-	strcpy(procbuf, buf);
+	memcpy(procbuf, buf, len+1);
+	lp = 0;
+
+proc_elif:
 	fwrite(procbuf, 1, len, fot);
-	lp = 1;
+	lp += 1;
 	chr = procbuf + len;
 	while (*(chr-2) == '\\' && *(chr-1) == '\n') {
 		chr -= 2;
@@ -151,8 +155,30 @@ static int process_if(const char *buf, int len, FILE *fin, FILE *fot, int lno)
 	fprintf(stderr, "#if processed at line: %d\n", lno+1);
 	fprintf(stderr, "%s\n", procbuf);
 
-	evaluate_if(procbuf, len);
+	valif = evaluate_if(procbuf, len);
+	if (valif == -1) {
+		do {
+			nochr = m_getline(&lbuf, &buflen, fin);
+			cchr = strip_blanks(lbuf);
+			if (unlikely(strstr(cchr, "#if") == cchr))
+				lp += process_if(lbuf, nochr, fin, fot, lno+lp);
+			else if (unlikely(strstr(cchr, "#endif") == cchr)) {
+				fwrite(lbuf, 1, nochr, fot);
+				lp += 1;
+				goto exit_10;
+			} else if (unlikely(strstr(cchr, "#elif") == cchr)) {
+				memcpy(procbuf, lbuf, nochr+1);
+				len = nochr;
+				lno += lp;
+				goto proc_elif;
+			} else {
+				fwrite(lbuf, 1, nochr, fot);
+				lp += 1;
+			}
+		} while (1);
+	}
 
+exit_10:
 	free(lbuf);
 	free(procbuf);
 	return lp;

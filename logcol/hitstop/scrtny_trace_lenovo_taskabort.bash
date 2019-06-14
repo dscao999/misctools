@@ -102,7 +102,7 @@ do
 	hitstp=$(dmesg --nopager -k | grep -F "${ENDMARK}" | sed -e '$!d' | \
 			sed -e 's/^\[ *//' -e 's/\./ /')
 	hitstp=${hitstp%% *}
-	[ $hitstp -gt $stplast ] && break
+	[ -n "$hitstp" ] && [ $hitstp -gt $stplast ] && break
 
 	keyline=$(dmesg --nopager -k |grep -F "$MARK"|sed -e '$!d'| \
 			sed -e 's/^\[ *//' -e 's/\./ /')
