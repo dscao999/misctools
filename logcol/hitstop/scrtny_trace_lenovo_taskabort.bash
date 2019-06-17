@@ -96,20 +96,20 @@ function fwdump()
 #Look for task abort event, when meet "attempting task abort", begin to capture logs
 #SEDSTP=sed -e 's/^\[ *//' -e 's/\.//' -e 's/]/ /'
 #
-dmesg --nopager -k | sed -e '$!d' | sed -e 's/^\[ *//' -e 's/\.//' -e 's/]/ /' | sed -e 's/ .*$//' > $STAMP
+stplast=$(dmesg --nopager -k | sed -e '$!d' | sed -e 's/^\[ *//' -e 's/\.//' -e 's/]/ /' | sed -e 's/ .*$//')
+echo "$stplast $numabort" > $STAMP
 count=0
 status=0
 #
 while [ $status -ne 11 ]
 do
-	read stplast < $STAMP
 	dmesg --nopager -k | while read line
 	do
 		stpcur=$(echo $line | sed -e 's/^\[ *//' -e 's/\.//' -e 's/]/ /')
 		stpcur=${stpcur%% *}
 		[ $stpcur -le $stplast ] && continue
 		stplast=$stpcur
-		echo $stplast > $STAMP
+		echo "$stplast $numabort" > $STAMP
 #
 		if echo $line | grep -F "${ENDMARK}" > /dev/null 2>&1
 		then
@@ -126,6 +126,7 @@ do
 #
 	[ ${count} -eq 0 ] && echo "I'm still alive at $(date)"
 	sleep
+	read stplast numabort < $STAMP
 	count=$(((count+1)%10))
 done
 #
