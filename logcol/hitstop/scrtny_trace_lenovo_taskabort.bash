@@ -42,6 +42,7 @@ echo 0x03f8 >  ${MPT3_DEBUG}
 echo ${MPT3_DEBUG}=$(printf "%#x\n" $(cat ${MPT3_DEBUG}))
 #
 PATH=./bin
+STAMP="/tmp/scrtny_stamp.txt"
 #
 #collect current drive status by scrtnycli tool before test
 scrtnycli.x86_64 -i 1 cli pl status > pl_status_pretest.txt
@@ -93,32 +94,39 @@ function fwdump()
 }
 
 #Look for task abort event, when meet "attempting task abort", begin to capture logs
+#SEDSTP=sed -e 's/^\[ *//' -e 's/\.//' -e 's/]/ /'
 #
-stplast=$(dmesg --nopage -k | sed -e '$!d' | sed -e 's/^\[ *//' -e 's/\./ /')
-stplast=${stplast%% *}
+dmesg --nopager -k | sed -e '$!d' | sed -e 's/^\[ *//' -e 's/\.//' -e 's/]/ /' | sed -e 's/ .*$//' > $STAMP
 count=0
-while true
+status=0
+#
+while [ $status -ne 11 ]
 do
-	hitstp=$(dmesg --nopager -k | grep -F "${ENDMARK}" | sed -e '$!d' | \
-			sed -e 's/^\[ *//' -e 's/\./ /')
-	hitstp=${hitstp%% *}
-	[ -n "$hitstp" ] && [ $hitstp -gt $stplast ] && break
-
-	keyline=$(dmesg --nopager -k |grep -F "$MARK"|sed -e '$!d'| \
-			sed -e 's/^\[ *//' -e 's/\./ /')
-	if [ -n "$keyline" ]
-	then
-		stpcur=${keyline%% *}
-		if [ $stpcur -gt $stplast ]
+	read stplast < $STAMP
+	dmesg --nopager -k | while read line
+	do
+		stpcur=$(echo $line | sed -e 's/^\[ *//' -e 's/\.//' -e 's/]/ /')
+		stpcur=${stpcur%% *}
+		[ $stpcur -le $stplast ] && continue
+		stplast=$stpcur
+		echo $stplast > $STAMP
+#
+		if echo $line | grep -F "${ENDMARK}" > /dev/null 2>&1
 		then
-			stplast=$stpcur
+			exit 11
+		fi
+#
+		if echo $line |grep -F "$MARK" > /dev/null 2>&1
+		then
 			fwdump
 			numabort=$(((numabort+1)%10))
 		fi
-	fi
+	done
+	status=$?
+#
 	[ ${count} -eq 0 ] && echo "I'm still alive at $(date)"
 	sleep
-	count=$(((count+1)%30))
+	count=$(((count+1)%10))
 done
 #
 # Dump 5 more times after timeout
